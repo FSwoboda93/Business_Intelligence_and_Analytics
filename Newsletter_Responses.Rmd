@@ -1,0 +1,268 @@
+---
+title:  'Tutorial 6: Newsletter Case'
+output: html_notebook
+editor_options: 
+  chunk_output_type: inline
+---
+
+This file is part of the lecture Business Intelligence & Analytics (EESYS-BIA-M), Information Systems and Energy Efficient Systems, University of Bamberg.
+
+
+```{r Load libraries}
+library(dplyr)
+library(lubridate)
+```
+
+
+
+```{r read the files with basic R functions}
+nl_mailsSend <- read.csv2("../data/newsletter/newsletterData_mailsSend.csv",
+           encoding = "UTF-8", # this is usually not needed
+           stringsAsFactors = F # R formats columns with text as factor, 
+                                # this is not meaningful in our case
+           ) 
+nl_clicks <- read.csv2("../data/newsletter/newsletterData_clicks.csv",
+           encoding = "UTF-8", stringsAsFactors = F)
+nl_links <- read.csv2("../data/newsletter/newsletterData_links.csv",
+           encoding = "UTF-8", stringsAsFactors = F)
+nl_opens <- read.csv2("../data/newsletter/newsletterData_opens.csv",
+           encoding = "UTF-8", stringsAsFactors = F)
+```
+
+```{r inspect the data}
+summary(nl_mailsSend)
+str(nl_mailsSend)
+
+summary(nl_clicks)
+str(nl_clicks)
+
+summary(nl_links)
+str(nl_links)
+
+summary(nl_opens)
+str(nl_opens)
+```
+
+```{r format the data correctly (exercise 3-5)}
+# format the nl_mailsSend dataset
+
+nl_mailsSend$VID <- as.factor(nl_mailsSend$VID)
+nl_mailsSend$EmailID <- as.factor(nl_mailsSend$EmailID)
+nl_mailsSend$NumTipIDs <- as.factor(nl_mailsSend$NumTipIDs)
+nl_mailsSend$NewsletterTitle <- as.factor(nl_mailsSend$NewsletterTitle)
+nl_mailsSend$EnergyReport.EfficiencyLevel <- as.factor(nl_mailsSend$EnergyReport.EfficiencyLevel)
+nl_mailsSend$EnergyReport.HouseholdType <- as.factor(nl_mailsSend$EnergyReport.HouseholdType)
+nl_mailsSend$EnergyReport.HouseholdMembers <- as.factor(nl_mailsSend$EnergyReport.HouseholdMembers)
+
+# format the nl_clicks dataset
+
+nl_clicks$LinkID <- as.factor(nl_clicks$LinkID)
+
+# format the nl_links dataset
+
+nl_links$EmailID <- as.factor(nl_links$EmailID)
+nl_links$LinkID <- as.factor(nl_links$LinkID)
+
+# format the nl_opens dataset
+
+nl_opens$EmailID <- as.factor(nl_opens$EmailID)
+```
+
+
+```{r format the date columns (exercise 6-7)}
+
+# format the date and time values with lubridate functions
+nl_mailsSend$SendDate <- ymd_hms(nl_mailsSend$SendDate)
+nl_mailsSend$EnergyReport.PeriodStart <- ymd_hms(nl_mailsSend$EnergyReport.PeriodStart)
+nl_mailsSend$EnergyReport.PeriodEnd <- ymd_hms(nl_mailsSend$EnergyReport.PeriodEnd)
+
+nl_clicks$ClickDate <- ymd_hms(nl_clicks$ClickDate)
+
+nl_opens$OpenDate <- ymd_hms(nl_opens$OpenDate)
+
+
+# optional: format the date and time values with basic R functions
+
+# nl_mailsSend$SendDate <- strptime(nl_mailsSend$SendDate, format="%F %T", tz="UTC")
+# nl_mailsSend$EnergyReport.PeriodStart <- strptime(nl_mailsSend$EnergyReport.PeriodStart, format="%FT%T", tz="UTC")
+# nl_mailsSend$EnergyReport.PeriodEnd <- strptime(nl_mailsSend$EnergyReport.PeriodEnd, format="%FT%T", tz="UTC")
+# 
+# nl_opens$OpenDate <- strptime(nl_opens$OpenDate, format="%F %T", tz="UTC")
+# 
+# nl_clicks$ClickDate <- strptime(nl_clicks$ClickDate, format="%F %T", tz="UTC")
+```
+
+
+```{r statistics on time (exercise 8+9)}
+
+# exercise 8
+min(nl_mailsSend$SendDate)
+max(nl_mailsSend$SendDate)
+
+# exercise 9
+table(as_date(nl_mailsSend$SendDate))
+```
+
+```{r dplyr expercises}
+# exercises 10-13
+filter(nl_mailsSend, VID == "1467")
+filter(nl_mailsSend, as_date(SendDate) == ymd(20170404)) 
+select(nl_mailsSend, VID, EmailID, SendDate)
+arrange(nl_mailsSend, desc(SendDate))
+
+# exercise 14
+X_grouped <- mutate(nl_mailsSend, day_send = as_date(SendDate))
+X_grouped <- group_by(X_grouped, day_send)
+summarise(X_grouped, n_mails = n())
+
+# exercise 15
+X_grouped2 <- group_by(nl_mailsSend, NewsletterTitle)
+summarise(X_grouped2, n_mails = n(), avg_time = mean(SendDate))
+
+```
+
+```{r dplyr exercises with piping}
+# exercise 16 (new version of 14)
+nl_mailsSend %>% 
+  mutate(day_send = as_date(SendDate)) %>%
+  group_by(day_send) %>%
+  summarise(n_mails = n())
+
+# exercise 16 (new version of 15)
+nl_mailsSend %>%
+  group_by(NewsletterTitle) %>%
+  summarise(n_mails = n(), 
+            avg_time = mean(SendDate))
+
+# exercise 17
+nl_mailsSend %>% 
+  mutate(day_send = as_date(SendDate)) %>%
+  filter(day_send==ymd(20170404)) %>%
+  select(VID, EmailID, SendDate)
+```
+
+```{r exericses using joins}
+email_opened <- nl_mailsSend %>%
+  left_join(nl_opens, by="EmailID") %>% # we also need the rows with no match in the opens table
+  group_by(EmailID) %>%
+  summarise(opened = any(!is.na(OpenDate))) 
+mean(email_opened$opened)
+
+nl_mailsSend %>%
+  left_join(nl_opens, by="EmailID") %>% # we also need the rows with no match in the opens table
+  group_by(EmailID) %>%
+  summarise(title = first(NewsletterTitle), 
+            opened = any(!is.na(OpenDate))) %>%
+  group_by(title) %>%
+  summarise(openrate = mean(opened))
+
+
+nl_mailsSend %>%
+  left_join(nl_links, by="EmailID") %>%
+  left_join(nl_clicks, by="LinkID") %>%
+  group_by(EmailID) %>%
+  #this is pretty much the same as above
+  summarise(title = first(NewsletterTitle), 
+            clicked = any(!is.na(ClickDate))) %>%
+  group_by(title) %>%
+  summarise(clickrate = mean(clicked))
+
+```
+
+```{r visualization}
+# exercise 23
+plot(nl_mailsSend$EnergyReport.Cons)
+
+#exercise 24
+plot(nl_mailsSend$EnergyReport.Cons, nl_mailsSend$EnergyReport.PrevCons)
+plot(nl_mailsSend$EnergyReport.Cons ~ nl_mailsSend$EnergyReport.PrevCons)
+
+#exercise 25
+plot(nl_mailsSend$EnergyReport.Cons, log="y")
+plot(nl_mailsSend$EnergyReport.Cons, nl_mailsSend$EnergyReport.PrevCons, log="xy")
+
+# exercise 26
+boxplot(nl_mailsSend$EnergyReport.Cons)
+
+# exercise 27
+hist(nl_mailsSend$EnergyReport.Cons, breaks = 30)
+```
+```{r histogram with additional lines - exercise 28 + 29}
+# exercise 27-29
+hist(nl_mailsSend$EnergyReport.Cons, 
+     probability = T, # probability must be used to have the same scale as density
+     breaks=80, # increases the number of bars of the histogram
+     ylim = c(0,0.001)) 
+lines(density(nl_mailsSend$EnergyReport.Cons), col=2)
+abline(v=quantile(nl_mailsSend$EnergyReport.Cons, probs = c(0.25,0.5,0.75)), col=3)
+```
+
+
+```{r bar and pie charts with colors (exercise 30 extended)}
+library(RColorBrewer)
+mycolors <- brewer.pal(4, "Dark2")
+
+barplot(table(as_date(nl_mailsSend$SendDate)), # barplot needs a frequency table
+        main="Number of emails sent per newsletter", # the plot title
+        horiz = T, # horizontal barplot
+        las=1, # aligns the axis labels to the reading direction
+        cex.names = 0.6, # adjust size of the labels
+        col=mycolors[c(1,1,1,1,2,3,4)]) # set the colors
+
+pie(table(as_date(nl_mailsSend$SendDate)),
+    col=mycolors[c(1,1,1,1,2,3,4)], 
+    main="Number of emails sent per newsletter")
+```
+
+
+```{r plot showing email opens and clicks over time}
+
+# identify all opens per day
+actions_open <- nl_opens %>%
+  mutate(day_action = as_date(OpenDate)) %>% 
+  group_by(day_action) %>%
+  summarise(num_opens = n())
+
+# identify all clicks per day
+actions_click <- nl_clicks %>%
+  mutate(day_action = as_date(ClickDate)) %>% 
+  group_by(day_action) %>%
+  summarise(num_clicks = n())
+
+# combine clicks and opens to one data frame
+actions_all <- full_join(actions_open, actions_click, by="day_action")  
+
+# replace NA values with 0
+actions_all$num_opens <- ifelse(is.na(actions_all$num_opens), 0, actions_all$num_opens)
+actions_all$num_clicks <- ifelse(is.na(actions_all$num_clicks), 0, actions_all$num_clicks)
+
+# a simple plot will show a misleading picture
+plot(actions_all$num_opens ~actions_all$day_action, type="b")
+
+# create rows for all days with no actions
+days_noaction <- data.frame(
+  day_action = seq(from = ymd(20170404), to = ymd(20171010), by = "days"),
+  num_clicks = 0,
+  num_opens = 0) %>% anti_join(actions_all, by = "day_action")
+
+actions_all <- rbind(actions_all, days_noaction) %>% arrange(day_action)
+
+# find the points in time when the newsletter were send
+senddates_newsletter <- nl_mailsSend %>% 
+  mutate(nl_uniquename = paste(NewsletterTitle, EnergyReport.Quarter)) %>%
+  group_by(nl_uniquename) %>% summarise(date_send = mean(SendDate))
+
+plot(actions_all$num_opens ~ actions_all$day_action, type="l",
+     ylim=c(0,250), xlab="Time", ylab="Number of email opens / clicks")
+abline(h=seq(from=0, to=250, by=50), lty="dashed", col="gray", lwd=2)
+lines(actions_all$num_clicks ~ actions_all$day_action, col=2)
+
+abline(v=as_date(senddates_newsletter$date_send), col=4, lty=3)
+
+legend("topleft", legend = c("Time of email energy report",
+                             "Number of email opens",
+                             "Number of clicks"), col=c(4,1,2), 
+       lty=c(2,1,1), bg = "White")
+```
+
+

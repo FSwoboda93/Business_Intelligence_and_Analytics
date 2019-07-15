@@ -1,0 +1,166 @@
+---
+title:  'Tutorial 9: Classification'
+output: html_notebook
+editor_options: 
+  chunk_output_type: inline
+---
+
+This file is part of the lecture Business Intelligence & Analytics (EESYS-BIA-M), Information Systems and Energy Efficient Systems, University of Bamberg.
+
+
+```{r Load required packages}
+library(FSelector) #for feature selection
+library(e1071) #for classification algorithm SVM
+library(randomForest) #further random forest
+library(ROCR) #for illustration of classification performance
+library(dplyr) #for data wrangling
+```
+
+
+```{r Load and prepare data}
+# Load data
+load("../data/classification2.RData")
+
+# Derive and investigate the dependent variable "number of residents"
+adults <- as.integer(ifelse(customers$residents.numAdult=="5 oder mehr",
+                            "5",customers$residents.numAdult))
+children <- as.integer(ifelse(customers$residents.numChildren=="5 oder mehr",
+                              "5",customers$residents.numChildren))
+
+table(ifelse(is.na(children), adults, adults+children))
+# think in classes. we have some very rare classes of number of residents (>5)
+
+# Prepare pNumResidents to have multiple classes
+customers$pNumResidents <- sapply(ifelse(is.na(children), adults, adults+children), 
+                                       function(a) {
+  if(a==0 || is.na(a)){
+    return(NA)
+  } else if(a==1){
+    return("1 person")
+  } else if(a==2){
+    return("2 persons")
+  } else if(a<=5){
+    return("3-5 persons")
+  } else {
+    return(">5 persons")
+  }
+})
+
+customers$pNumResidents <- ordered(customers$pNumResidents, 
+                                      levels=c("1 person", "2 persons", 
+                                               "3-5 persons", ">5 persons"))
+table(customers$pNumResidents)
+
+
+# Prepare pNumResidents to have two (binary) classes
+customers$pNumResidents2 <- sapply(ifelse(is.na(children), adults, adults+children), 
+                                       function(a) {
+  if(a==0 || is.na(a)){
+    return(NA)
+  } else if(a<=2){
+    return("1-2 persons")
+  } else {
+    return(">2 persons")
+  }
+})
+
+customers$pNumResidents2 <- ordered(customers$pNumResidents2, 
+                                      levels=c("1-2 persons", ">2 persons"))
+table(customers$pNumResidents2)
+
+all_data <- left_join(all_data, customers %>% select(VID, pNumResidents, pNumResidents2, housing.type), by="VID")
+```
+
+
+```{r Classification with probabilities - binary class}
+selected.features <- c("c_week","c_morning","c_noon","c_afternoon","c_evening","s_we_max","s_we_min","s_wd_max")
+
+set.seed(1506)
+test.cases <- match(
+  sample(all_data$VID, size = .3*nrow(all_data)), 
+  all_data$VID)
+
+all_data
+
+testdata <- na.omit(all_data[test.cases, c("pNumResidents2", selected.features)])
+traindata <- na.omit(all_data[-test.cases, c("pNumResidents2", selected.features)])
+
+
+## SVM with probabilities -------
+
+model <- svm(pNumResidents2 ~ . , data=traindata, probability = T)
+clres <- predict(model, newdata=testdata, probability = T)
+
+cm <- table(clres, testdata$pNumResidents2)
+(accuracy <- (sum(diag(cm))/sum(as.vector(cm))))
+
+#for ROC curve, the probabilities as estimated by the classifier are needed
+propabilities <- attributes(clres)$probabilities[,1]
+
+# FROM HERE ON EXERCISE
+
+
+
+
+
+```
+
+
+```{r Classification with probabilities - multiclass}
+testdata <- na.omit(all_data[test.cases, c("pNumResidents", selected.features)])
+traindata <- na.omit(all_data[-test.cases, c("pNumResidents", selected.features)])
+
+model <- svm(pNumResidents ~ . , data=traindata, probability = T)
+clres <- predict(model, newdata=testdata, probability = T)
+
+cm <- table(clres, testdata$pNumResidents)
+(accuracy <- (sum(diag(cm))/sum(as.vector(cm))))
+
+#for ROC curve, the probabilities as estimated by the classifier are needed
+propabilities <- attributes(clres)$probabilities
+
+
+# FROM HERE ON EXERCISE
+
+
+
+
+```
+
+
+```{r Classification with an advanced evaluation technique: cross-validation}
+set.seed(1506)
+all_data$crossfolds <- sample(1:5, nrow(all_data), replace = TRUE)
+
+# list for the interim results
+results <- list()
+
+for(foldIndex in 1:5){
+  # creating data for the 
+  testdata <- na.omit(all_data[all_data$crossfolds==foldIndex, c("pNumResidents2", selected.features)])
+  traindata <- na.omit(all_data[all_data$crossfolds!=foldIndex, c("pNumResidents2", selected.features)])
+  
+  model <- svm(pNumResidents2 ~ . , data=traindata, probability = T)
+  results[[foldIndex]] <- list()
+  results[[foldIndex]]$model <- model
+  
+  clres <- predict(model, newdata=testdata, probability = T)
+  results[[foldIndex]]$probs <- attributes(clres)$probabilities
+
+  cm <- table(clres, testdata$pNumResidents2)
+  results[[foldIndex]]$cm <- cm
+  
+  results[[foldIndex]]$accuracy <- (accuracy <- (sum(diag(cm))/sum(as.vector(cm))))
+  
+  results[[foldIndex]]$labels <- testdata$pNumResidents2
+  
+}
+
+# FROM HERE ON EXERCISE
+
+
+
+
+```
+
+

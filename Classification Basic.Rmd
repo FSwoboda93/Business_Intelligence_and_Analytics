@@ -1,0 +1,218 @@
+---
+title:  'Tutorial 9: Classification'
+output: html_notebook
+editor_options: 
+  chunk_output_type: inline
+---
+
+This file is part of the lecture Business Intelligence & Analytics (EESYS-BIA-M), Information Systems and Energy Efficient Systems, University of Bamberg.
+
+
+```{r Load libraries}
+library(FSelector) #for feature selection
+library(party) #for classification algorithm decision trees
+library(class) #for classification algorithm kNN
+library(e1071) #for classification algorithm SVM
+library(randomForest) #further random forest
+```
+
+
+
+```{r Load and prepare data}
+# Load data
+load("C:/Users/Swob1/OneDrive/Desktop/Semester 1/Business Intelligence and Analytics/R/2018-ws-bia/data/classification.RData")
+
+# Derive and investigate the dependent variable "number of residents"
+adults <- as.integer(ifelse(customers$residents.numAdult=="5 oder mehr",
+                            "5",customers$residents.numAdult))
+children <- as.integer(ifelse(customers$residents.numChildren=="5 oder mehr",
+                              "5",customers$residents.numChildren))
+
+table(ifelse(is.na(children), adults, adults+children))
+# think in classes. we have some very rare classes of number of residents (>5)
+
+customers$pNumResidents <- sapply(ifelse(is.na(children), adults, adults+children), 
+                                       function(a) {
+  if(a==0 || is.na(a)){
+    return(NA)
+  } else if(a==1){
+    return("1 person")
+  } else if(a==2){
+    return("2 persons")
+  } else if(a<=5){
+    return("3-5 persons")
+  } else {
+    return(">5 persons")
+  }
+})
+
+customers$pNumResidents <- ordered(customers$pNumResidents, 
+                                      levels=c("1 person", "2 persons", 
+                                               "3-5 persons", ">5 persons"))
+table(customers$pNumResidents)
+```
+
+```{r Detailed analysis of the independent variables}
+# Descriptive analysis of load traces -------------------------------------
+# Plot some load curves from households to get familiar with the data
+
+household <- 8
+
+#plot the weekly trace of one household (ts creates a time series object)
+plot(ts(smd[household,], frequency = 4*24), 
+     main="Weekly load curve")
+
+#plot the monday
+plot(ts(smd[household,1:(24*4)], frequency = 4*24), 
+     main="Load curve of monday")
+
+#add the other days to the same plot
+cols <- heat.colors(8)
+for(i in 1:6){
+  lines(ts(smd[household,(i*24*4):((i+1)*24*4)], frequency = 4*24), 
+        col=cols[i])  
+}
+legend("topleft",legend = c("Mon", "Tue", "Wed", "Thu", "Fri","Sat","Sun"), 
+       col = c("black",cols), lty = 1)
+```
+
+
+```{r Feature extraction}
+# Define and implement 10 features from SMD (e.g. mean consumption, mean 
+# consumption in the evening)
+
+calcFeatures.smd <- function(SMD){
+  #SMD: the load trace for one week (vector with 672 elements)
+  
+  #create a matrix with 7 columns for each day
+  dm15=matrix(as.numeric(SMD),ncol=7)
+
+  # define some times
+  weekday <-   1:(5*4*24)
+  weekend <-   (5*4*24+1):672
+  night <-       ( 1*4+1):( 6*4)
+  morning <-     ( 6*4+1):(10*4)
+  noon <-        (10*4+1):(14*4)
+  afternoon <-   (14*4+1):(18*4)
+  evening <-     (18*4+1):(22*4)
+  
+  #data.frame for the results
+  D=data.frame(c_week=mean(dm15, na.rm = T))
+  
+  #calculate consumption features
+  D$c_night <-     mean(dm15[night,     1:7], na.rm = T)
+  D$c_morning <-   mean(dm15[morning,   1:7], na.rm = T)
+  D$c_noon <-      mean(dm15[noon,      1:7], na.rm = T)
+  D$c_afternoon <- mean(dm15[afternoon, 1:7], na.rm = T)
+  D$c_evening <-   mean(dm15[evening,   1:7], na.rm = T)
+  
+  #calculate statistical features
+  D$s_we_max <- max(dm15[weekend], na.rm = T)
+  D$s_we_min <- min(dm15[weekend], na.rm = T)
+  D$s_wd_max <- max(dm15[weekday], na.rm = T)
+  D$s_wd_min <- min(dm15[weekday], na.rm = T)
+  
+  #calculate relations
+  D$r_min_wd_we <- D$s_wd_min / D$s_we_min #division by 0 leads to NaN!
+  D$r_min_wd_we <- ifelse(is.na(D$r_min_wd_we), 0, D$r_min_wd_we)
+  D$r_max_wd_we <- D$s_wd_max / D$s_we_max
+  D$r_max_wd_we <- ifelse(is.na(D$r_max_wd_we), 0, D$r_max_wd_we)
+  
+  return(D)
+}
+
+#calculate the features for one household
+calcFeatures.smd(smd[2,])
+
+features <- calcFeatures.smd(smd[1,])
+for(i in 2:nrow(smd)){
+  features <- rbind(features, calcFeatures.smd(smd[i,]))
+}
+```
+
+
+```{r Feature selection}
+# Feature filtering  -------------------------------------------------------
+# Combine all features in one data frame and apply feature selection methods from the FSelector package. 
+# a) Which features are selected? 
+# b) Can you explain why those features might be selected?
+
+#combine all datasets
+alldata <- cbind(customers, features)
+
+#simple call of the feature selection function
+cfs(pNumResidents ~ ., alldata)
+
+#Problem: other dependant variables are selected -> only use relevant variables in feature setection!
+
+#create a vector containing all feature names
+all.features <- setdiff(colnames(alldata), c("VID", "residents.numAdult", 
+                                             "residents.numChildren", "housing.type","pNumResidents"))
+
+#correlation based filter (2 similar ways to call the method)
+selected.features <- cfs(formula = "pNumResidents ~ .", data = alldata[,c("pNumResidents", all.features)])
+selected.features <- cfs(formula=as.simple.formula(class="pNumResidents", attributes = all.features), 
+                         data = alldata)
+
+#further feature filter
+selected.features2 <- consistency(formula=as.simple.formula(class="pNumResidents", 
+                                                            attributes = all.features), data = alldata)
+```
+
+
+```{r Classification Basic evaluation approach}
+set.seed(1506)
+test.cases <- match(
+  sample(alldata$VID, size = .3*nrow(alldata)), 
+  alldata$VID)
+
+## decisoon tree
+
+#train the model
+model <- ctree(pNumResidents ~ . , 
+               data=alldata[-test.cases, c("pNumResidents", selected.features)])
+
+#predict test cases
+clres <- predict(model, newdata=alldata[test.cases,c("pNumResidents", selected.features)])
+
+#create confusion matrix and calculate accuracy
+cm <- table(clres, alldata$pNumResidents[test.cases])
+(accuracy <- (sum(diag(cm))/sum(as.vector(cm))))
+
+## random forest
+
+#train the model
+model <- randomForest(pNumResidents ~ . , 
+                 data=alldata[-test.cases, c("pNumResidents", selected.features)])
+
+#predict test cases
+clres <- predict(model, newdata=alldata[test.cases,c("pNumResidents", selected.features)])
+
+#create confusion matrix and calculate accuracy
+cm <- table(clres, alldata$pNumResidents[test.cases])
+(accuracy <- (sum(diag(cm))/sum(as.vector(cm))))
+
+## kNN
+testdata <- na.omit(alldata[test.cases, c("pNumResidents", selected.features)])
+traindata <- na.omit(alldata[-test.cases, c("pNumResidents", selected.features)])
+
+# predict test cases from training data (lazy learning algoritm has no explicit training step!)
+clres <- knn(train = traindata[,-1], test = testdata[,-1], 
+             traindata$pNumResidents, k = 5)
+
+#create confusion matrix and calculate accuracy
+cm <- table(clres, testdata$pNumResidents)
+(accuracy <- (sum(diag(cm))/sum(as.vector(cm))))
+
+## SVM
+
+#train the model
+model <- svm(pNumResidents ~ . , data=traindata)
+
+#predict the test cases
+clres <- predict(model, newdata=testdata)
+
+#create confusion matrix and calculate accuracy
+cm <- table(clres, testdata$pNumResidents)
+(accuracy <- (sum(diag(cm))/sum(as.vector(cm))))
+```

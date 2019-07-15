@@ -1,0 +1,435 @@
+---
+title:  'Tutorial 11-12: Teaching case E-Mobility'
+output: html_notebook
+editor_options: 
+  chunk_output_type: inline
+---
+
+This file is part of the lecture Business Intelligence & Analytics (EESYS-BIA-M), Information Systems and Energy Efficient Systems, University of Bamberg.
+
+
+##Exercise 1
+```{r}
+# 1. Load the Data.
+trips <- read.csv2(file="BIA_GPS_TIME_SERIES_1.csv", header=TRUE)
+```
+
+
+##Exercise 2
+```{r}
+# 2. How many rows and columns are there?
+dim(trips)
+```
+
+
+##Exercise 3
+```{r}
+# 3. What are the attributes and objects?
+names(trips)
+unique(trips$ID_TERMINAL)
+```
+
+
+##Exercise 4
+```{r}
+# 4. What are the measurement scales for the attributes?
+summary(trips)
+# By reasoning:
+# ID_Terminal: Nominal Scale (Name of the Car)
+# Timestamp: Interval Scale (no absolute 0)
+# Latitude: Interval Scale (0 artificially chosen, "0" latitude is not "no" latitude)
+# Longitude: Interval Scale (0 artificially chosen)
+# Speed: Ratio Scale (0 km/h is absolute 0)
+# Heading: Interval Scale (0 artificially chosen)
+# Deltapos: Ratio Scale (0 m is absolute 0)
+# Deltatime: Ratio Scale (0 s is absolute 0)
+# ID_Panelsession: Nominal Scale (Name of the Entry)
+# ID_Locationtype: Nominal Scale (Name of the Entry)
+```
+
+
+##Exercise 5
+```{r}
+# 5. How many objects are there?
+length(unique(trips$ID_TERMINAL))
+```
+
+
+##Exercise 6
+```{r}
+# 6. Observations during what time period are covered (exact dates)?
+print(paste("From ",trips[1,]$TIMESTAMP, " to ",trips[nrow(trips),]$TIMESTAMP))
+# Assuming that data is ordered by time.
+# Alternative approach:
+trips[order(as.Date(substr(trips$TIMESTAMP,1,10), format="%Y-%m-%d")),][1,]
+trips[order(as.Date(substr(trips$TIMESTAMP,1,10), format="%Y-%m-%d")),][
+  nrow(trips),]
+```
+
+
+##Exercise 7
+```{r}
+# 7. Calculate basic statistics for the attributes where it does make sense.
+# Central Tendency Measures (Mean, median, mode)
+# Note: Mode is appropriate for all measurement scales, while mean and median
+# only for interval and above
+
+mean(trips$LATITUDE)
+mean(trips$LONGITUDE)
+mean(trips[which(trips$ID_PANELSESSION==1),]$SPEED)
+mean(trips[which(trips$ID_PANELSESSION==1),]$DELTAPOS)
+mean(trips[which(trips$ID_PANELSESSION==0),]$DELTATIME)
+median(trips[which(trips$ID_PANELSESSION==1),]$SPEED)
+median(trips[which(trips$ID_PANELSESSION==0),]$DELTATIME)
+
+summary(trips)
+
+# mode for ID_LOCATIONTYPE:
+sort(table(trips$ID_LOCATIONTYPE))
+names(sort(-table(trips$ID_LOCATIONTYPE)))[1]
+
+# Dispersion Measures (Range, interquartile range, standard deviation)
+
+# range(trips$SPEED) - this "range" is not what we need - it returns a vector
+# containing the minimum and maximum of all the given arguments.
+# range(trips$LATITUDE) this "range" is not what we need 
+# range(trips$LONGITUDE) this "range" is not what we need 
+# range(trips[which(trips$ID_PANELSESSION==0),]$DELTATIME) this "range" is not
+# what we need  
+
+# Important: Range, interquartile range and standard deviation are only
+# applicable to interval and ratio scales
+# not applicable to ID_Terminal, ID_Panelsession and ID_Locationtype
+
+max(trips$SPEED)-min(trips$SPEED)
+max(trips$LATITUDE)-min(trips$LATITUDE)
+max(trips$LONGITUDE)-min(trips$LONGITUDE)
+
+quantile(trips[which(trips$ID_PANELSESSION==0),]$DELTATIME,
+  probs=c(0,0.25,0.5,0.75,1))
+sd(trips[which(trips$ID_PANELSESSION==1),]$SPEED)
+
+# Graphic Displays (Histogram, density-plot)
+hist(trips[which(trips$ID_PANELSESSION==1),]$SPEED)
+plot(density(trips[which(trips$ID_PANELSESSION==1),]$SPEED,from=0))
+```
+
+
+##Exercise 8
+```{r}
+# 8. Are there some variables that do not make sense?
+# See next exercises...
+```
+
+
+##Exercise 9
+```{r}
+# 9. Have a closer look at the panel session for the vehicles. Can you identify
+# some problems?
+unique(trips$ID_PANELSESSION)
+
+for(i in unique(trips$ID_TERMINAL)){
+  print(paste("ID: ",i , " Entries: ", nrow(trips[which(trips$ID_TERMINAL==i),
+    ])," Ignitions: ", (nrow(trips[which(trips$ID_PANELSESSION==0&trips$
+    ID_TERMINAL==i),]))))
+}
+```
+
+
+##Exercise 10
+```{r}
+# 10. How would you interpret these anomalies?
+# Reasoning: e.g. defective device?
+```
+
+
+##Exercise 11
+```{r}
+# 11. Are there unknown location types?
+unique(trips$ID_LOCATIONTYPE)
+```
+
+
+##Exercise 12
+```{r}
+# 12. Check if the speed and respective road types are reasonable?
+hist(trips$SPEED)
+hist(trips[which(trips$ID_LOCATIONTYPE==0),]$SPEED)
+hist(trips[which(trips$ID_LOCATIONTYPE==1),]$SPEED)
+hist(trips[which(trips$ID_LOCATIONTYPE==2),]$SPEED)
+```
+
+
+##Exercise 13
+```{r}
+# 13. Which columns do you consider relevant for our data mining problem?
+# Eliminate irrelevant data.
+# We don't use Heading
+trips <- trips[,c("ID_TERMINAL","TIMESTAMP","LATITUDE","LONGITUDE","SPEED",
+  "DELTAPOS","DELTATIME","ID_PANELSESSION", "ID_LOCATIONTYPE")]
+# Alternative:
+# trips[,-grep("HEADING",colnames(trips))]
+```
+
+
+##Exercise 14
+```{r}
+# 14.Using your data quality check (on page 14), fix the data. Do you have some
+# ideas how to improve / repair the data? 
+
+# a) Eliminate the vehicles with wrong values for panel session.
+trips <- trips[-which(trips$ID_PANELSESSION<0),]
+trips <- trips[-which(trips$ID_PANELSESSION>2),]
+trips <- trips[-which(trips$ID_TERMINAL==207),]
+trips <- trips[-which(trips$ID_TERMINAL==2565),]
+
+# b) What could you do with the data, based on the abovementioned speed
+# characteristics?
+# Option 1: Delete the whole dataset
+# unique(trips[which(trips$SPEED>300),]$ID_TERMINAL)
+# trips <- trips[-which(trips$ID_TERMINAL==268),]
+# Option 2: Set threshold a)
+# trips[which(trips$SPEED>300),"SPEED"] <- 300
+# Option 3: Set threshold b)
+# maxSpeed <- mean(trips$SPEED)+6*sd(trips$SPEED)
+# trips[which(trips$SPEED>maxSpeed),"SPEED"] <- maxSpeed
+# Option 4: Ignore
+# 100*length(trips[which(trips$SPEED>300),"SPEED"])/nrow(trips)
+```
+
+
+##Exercise 15
+```{r}
+# 15. How could you identify a trip?
+# Reasoning: Ignition - Driving - Shut-Off
+```
+
+
+##Exercise 16
+```{r}
+# 16. Identify the trips (derive the new attribute ???trips???, generate records).
+# You may use the function cumsum().
+trips$TRIPNUMBER <- 0
+trips[which(trips$ID_PANELSESSION==0),]$TRIPNUMBER <- 1
+for(i in unique(trips$ID_TERMINAL)){
+  trips[which(trips$ID_TERMINAL==i),]$TRIPNUMBER <- cumsum(trips[which(trips$
+  ID_TERMINAL==i),]$TRIPNUMBER)
+}
+```
+
+
+##Exercise 17
+```{r}
+# 17. How many trips are there?
+nrow(trips[which(trips$ID_PANELSESSION==2),])
+```
+
+
+##Exercise 18
+```{r}
+# 18. How many trips are there for each individual vehicle?
+for(i in unique(trips$ID_TERMINAL)){
+  print(paste("ID: ", i, " Number of trips: ",nrow(trips[which(trips$
+  ID_PANELSESSION==2&trips$ID_TERMINAL==i),]),sep=""))
+}
+
+# Please save your data!
+write.csv2(trips, "BIA_GPS_TIME_SERIES_2.csv")
+```
+
+
+##Exercise 19
+```{r}
+# Additional Exercise
+# 19. Calculate basic statistics for the new attribute trips:
+library(plyr)
+tripsNew <- NULL
+for(i in unique(trips$ID_TERMINAL)){
+  subset <- trips[which(trips$ID_TERMINAL==i),]
+  tempDist <- ddply(subset, .(TRIPNUMBER), summarize, TRIPDIST = sum(DELTAPOS))
+  subset <- merge(subset,tempDist[,c("TRIPNUMBER", "TRIPDIST")],
+                  by = c("TRIPNUMBER"), all.x=TRUE)
+  tripsNew <- rbind(tripsNew, subset)
+}
+trips <- tripsNew
+
+#  Central tendency measures (mean, median, mode) – on the histogram and on the density plot
+mean(trips$TRIPDIST)
+median(trips$TRIPDIST)
+# mode not reasonable here
+
+#  Dispersion measures (range, interquartile range, standard deviation)
+max(trips$TRIPDIST)-min(trips$TRIPDIST)
+quantile(trips$TRIPDIST,probs=c(0,0.25,0.5,0.75,1))
+sd(trips$TRIPDIST)
+
+#  Graphic displays (histogram, density-plot)
+hist(trips$TRIPDIST)
+plot(density(trips$TRIPDIST,from=0))
+
+
+```
+
+
+##Exercise 20
+```{r}
+# 20. Load your GPS time series from the first GPS time series tutorial and
+# install and load  the package "fpc". It contains an implementation of the
+# DBSCAN algorithm.
+trips <- read.csv2("BIA_GPS_TIME_SERIES_2.csv", header=TRUE)
+install.packages("fpc")
+library(fpc)
+```
+
+
+##Exercise 21
+```{r}
+# 21. Pick the vehicle with ID=782. Use the function dbscan() to infer frequently
+# visited locations of the driver.
+# Selection of appropriate values for parameters Eps and MinPts require testing
+# and interpretation of the problem at hand. Eps=0.0012 and MinPts=6 are a good
+# start, but feel free to try different parameters.
+subset <- trips[which(trips$ID_TERMINAL==782&trips$ID_PANELSESSION==0),]
+clusters <- dbscan(subset[,c("LONGITUDE","LATITUDE")], 1200, MinPts = 6)
+```
+
+
+##Exercise 22
+```{r}
+# 22. How many clusters did you find?
+max(clusters$cluster)
+```
+
+
+##Exercise 23
+```{r}
+# 23. Which cluster represents the presumable home location? Indicate home base
+# parking in your GPS time series data.
+subset$CLUSTER <- clusters$cluster
+
+clusters # Note that cluster "0" is noise. We can see that cluster "1" is most
+# frequently visited, therefore:
+home <- 1
+
+# Alternative: find the most frequently visited cluster automatically
+home <- as.numeric(names(sort(table(subset[which(subset$CLUSTER!=0),]$CLUSTER),
+                              decreasing=TRUE))[1])
+
+subset$HOMEBASE <- 0
+subset[which(subset$CLUSTER==home),]$HOMEBASE <- 1
+```
+
+
+##Exercise 24
+```{r}
+# 24. Optional Exercise: Perform clustering for all vehicles.
+trips$HOMEBASE <- 0
+for(id in unique(trips$ID_TERMINAL)){
+  subset <- trips[which(trips$ID_TERMINAL==id&trips$ID_PANELSESSION==0),]
+  clusters <- dbscan(subset[,c("LONGITUDE","LATITUDE")], 1200, MinPts = 6)
+  subset$CLUSTER <- clusters$cluster
+  home <- as.numeric(names(sort(table(subset[which(subset$CLUSTER!=0),]$CLUSTER),
+                                decreasing=TRUE))[1])
+  subset$HOMEBASE <- 0
+  subset[which(subset$CLUSTER==home),]$HOMEBASE <- 1
+  trips[which(trips$ID_TERMINAL==id),]$HOMEBASE <- 0
+  trips[which(trips$ID_TERMINAL==id&trips$ID_PANELSESSION==0),]$HOMEBASE <-
+    subset$HOMEBASE
+}
+
+# EV Simulation and Visualisation of GPS Driving Data
+write.csv2(trips, "BIA_GPS_TIME_SERIES_3.csv")
+```
+
+
+##Exercise 25
+```{r}
+# 25. Load GPS time series with home locations from VC and pick the vehicle with
+# ID=782. We use only one vehicle first for better understanding of the simulation.
+
+trips <- read.csv2("BIA_GPS_TIME_SERIES_3.csv", header=TRUE)
+subset <- trips[which(trips$ID_TERMINAL==782),]
+```
+
+
+##Exercise 26
+```{r}
+# 26. Look at the times when the car parks at the home location. How much energy
+# could be charged at home? (Note again that charging power is 3.6 kW)
+chargingPower <- 3.6
+subset$CHARGING <- subset$HOMEBASE * subset$DELTATIME/3600 * chargingPower
+```
+
+
+##Exercise 27
+```{r}
+# 27. Now look at the distances between each two measurement points. How much
+# energy is required to reach each consecutive location? (Note again that on
+# average the vehicle consumes 13kWh/100km)
+eConsumption <- 13/100/1000 # Energy consumption in kWh per meter
+subset$CONSUMPTION <- subset$DELTAPOS * eConsumption
+```
+
+
+##Exercise 28
+```{r}
+# 28. Combine information derived from questions 26 and 27. What is the state of
+# charge of the vehicle at each measurement point? (Note again that the vehicle
+# has a 20kWh battery) Begin with a full battery.
+
+batterycap <- 20 # Battery capacity in kWh
+subset$SOC <- 0
+subset$SOC[1] <- batterycap
+
+for(i in 2:nrow(subset)){
+  subset$SOC[i] <- subset$SOC[i-1]+subset$CHARGING[i] - subset$CONSUMPTION[i]
+  if(subset$SOC[i]>batterycap){
+    subset$SOC[i] <- batterycap
+  } else if(subset$SOC[i]<0){
+    subset$SOC[i] <- 0
+  }
+}
+
+# Alternative solution: more efficient
+subset$DIFFERENCE <- subset$CHARGING - subset$CONSUMPTION
+subset$SOC <- 0
+subset$SOC[1] <- batterycap
+f <- function(x, y) max(min(x + y, batterycap), 0)
+subset$SOC <- Reduce(f, subset$DIFFERENCE, batterycap, accumulate = TRUE)[-1]
+```
+
+
+##Exercise 29
+```{r}
+# 29. Optional Exercise: Calculate the state of charge at each measurement point
+# for each individual car in our dataset.
+
+newTrips <- NULL
+for(id in unique(trips$ID_TERMINAL)){
+  subset <- trips[which(trips$ID_TERMINAL==id),]
+  chargingPower <- 3.6
+  subset$CHARGING <- subset$HOMEBASE * subset$DELTATIME/3600 * chargingPower
+  subset$CONSUMPTION <- subset$DELTAPOS * eConsumption
+  subset$DIFFERENCE <- subset$CHARGING - subset$CONSUMPTION
+  subset$SOC <- 0
+  subset$SOC[1] <- batterycap
+  f <- function(x, y) max(min(x + y, batterycap), 0)
+  subset$SOC <- Reduce(f, subset$DIFFERENCE, batterycap, accumulate = TRUE)[-1]
+  newTrips <- rbind(newTrips, subset)
+}
+subset <- newTrips[which(newTrips$ID_TERMINAL==782),]
+
+100*nrow(subset[which(subset$ID_PANELSESSION==2&subset$SOC>0),])/
+  nrow(subset[which(subset$ID_PANELSESSION==2),])
+```
+
+
+##Exercise 30
+```{r}
+# 30. Again pick the vehicle with ID=782. What percentage of destinations could
+# be reached fully electrically? (We define destination as measurement entries
+# with ID_PANELSESSION=2)
+
+100*nrow(subset[which(subset$ID_PANELSESSION==2&subset$SOC>0),])/
+  nrow(subset[which(subset$ID_PANELSESSION==2),])
+``` 

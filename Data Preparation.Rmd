@@ -1,0 +1,220 @@
+
+---
+title:  'Tutorial 5: Data understanding and preparation'
+output: html_notebook
+editor_options: 
+  chunk_output_type: inline
+---
+
+This file is part of the lecture Business Intelligence & Analytics (EESYS-BIA-M), Information Systems and Energy Efficient Systems, University of Bamberg.
+
+# Read the APC dataset
+
+```{r Read data}
+APC <- read.csv2("../data/APC-dataset-anonym.csv")
+```
+
+
+# Overview of the APC dataset 
+
+```{r Get an overview I}
+# Data description report ----
+nrow(APC) # 1299 households
+ncol(APC) # 21 variables
+colnames(APC)
+```
+
+Just a few modifications on that code above must be made to get a formatted report.
+
+The APC dataset has `r nrow(APC)` rows and  `r ncol(APC)` columns.
+This are the column names of the dataset: `r colnames(APC)`.
+
+
+```{r Get an overview II}
+summary(APC)
+str(APC)
+```
+
+
+
+# Data preparation
+
+## Convert all data suitable class (without consumption)
+
+
+```{r Data preparation}
+# Task 1: most suitable class
+# convert ID to factor
+APC$ID <- as.factor(APC$ID) 
+
+# convert postal code to factor
+APC$PLZ <- as.factor(APC$PLZ)
+
+# convert strasse to character
+APC$Strasse <- as.character(APC$Strasse)
+
+# convert Betreff to character
+APC$Betreff <- as.character(APC$Betreff)
+
+# convert FilterNonHousehold to boolean
+APC$FilterNonHousehold <- ifelse(APC$FilterNonHousehold==1, T, F)
+
+# convert portal usage to boolean
+APC$Portal <- ifelse(APC$Portal==1, T, F)
+
+# Task 2: Correlation of NA values in post code and street name
+
+# Are NAs in street and PLZ the same? - yes: 63 households have neither Street nor postal code given
+table(is.na(APC$PLZ), is.na(APC$Strasse))
+
+# Task 3: Betreff
+head(sort(table(APC$Betreff), decreasing = T),n = 10)
+# "Einfamilienhaus" or "EFH Strom" is often used
+
+# Task 4: Differences between NA-like values
+APC[APC$Betreff %in% c("","#"),]
+# In this case: convert them to NA values by
+APC$Betreff <- ifelse(APC$Betreff %in% c("","#"), NA, APC$Betreff)
+
+# Task 5: 
+# Convert dates to correct format - read the help page of "strptime()"
+APC$pCreated <- as.character(APC$pCreated)
+APC$pCreated <- as.POSIXct(APC$pCreated, tz = "CET", format="%d.%m.%y %H:%M")
+APC$pLastVisited <- as.character(APC$pLastVisited)
+APC$pLastVisited <- as.POSIXct(APC$pLastVisited, tz = "CET", format="%d.%m.%y %H:%M")
+
+# Check the result of the data conversion part
+str(APC)
+```
+
+## Convert consumption data
+
+
+```{r Data preparation for Consumption values}
+
+# Task 6: Negative consumption values
+table(APC$Cons_2011<0)
+table(APC$Cons_2012<0)
+table(APC$Cons_2013<0)
+
+table(APC$Days_2011<0)
+table(APC$Days_2012<0)
+table(APC$Days_2013<0)
+
+# Exclude these values by setting them to NA
+APC$Cons_2011 <- ifelse(APC$Cons_2011<0, NA, APC$Cons_2011)
+APC$Cons_2012 <- ifelse(APC$Cons_2012<0, NA, APC$Cons_2012)
+APC$Cons_2013 <- ifelse(APC$Cons_2013<0, NA, APC$Cons_2013)
+
+APC$Days_2011 <- ifelse(APC$Days_2011<0, NA, APC$Days_2011)
+APC$Days_2012 <- ifelse(APC$Days_2012<0, NA, APC$Days_2012)
+APC$Days_2013 <- ifelse(APC$Days_2013<0, NA, APC$Days_2013)
+
+
+# Task 7: Finding pairs of NA / non-NA values
+APC[(is.na(APC$Cons_2012) & !is.na(APC$Days_2012)) |
+    (!is.na(APC$Cons_2012) & is.na(APC$Days_2012)),]
+# No change required
+
+# Task 8: Calculate normalized consumption
+APC$NCons_2011 <- APC$Cons_2011 / APC$Days_2011
+APC$NCons_2012 <- APC$Cons_2012 / APC$Days_2012
+APC$NCons_2013 <- APC$Cons_2013 / APC$Days_2013
+
+summary(APC$NCons_2011) # no households with negative consumption
+summary(APC$NCons_2012) # no households with negative consumption
+summary(APC$NCons_2013) # any households with negative consumption, set them to NA
+
+# set the infinite values to NA
+APC$NCons_2011 <- ifelse(is.infinite(APC$NCons_2011), NA, APC$NCons_2011)
+APC$NCons_2012 <- ifelse(is.infinite(APC$NCons_2012), NA, APC$NCons_2012)
+APC$NCons_2013 <- ifelse(is.infinite(APC$NCons_2013), NA, APC$NCons_2013)
+
+summary(APC$NCons_2011) # no households with negative consumption
+summary(APC$NCons_2012) # no households with negative consumption
+summary(APC$NCons_2013) # any households with negative consumption, set them to NA
+APC$NCons_2013 <- ifelse(APC$NCons_2013<0, NA, APC$NCons_2013)
+```
+# Parts of a data quality report
+
+Show the distribution of variables by using the histogram function:
+
+```{r}
+# Task 9: Data exploration report for consumption values
+hist(APC$NCons_2013)
+hist(APC$NCons_2013,breaks=30)
+```
+
+
+For later data analytics (e.g. tests on equality, regression, ...) it is often required to know something about the distribution of the data. We visually check, if the normalized consumption values a follow normal distribution:
+```{r}
+# test whether the data is normally distributed
+qqnorm(APC$NCons_2013) # we see that we have no normal distribution
+qqline(APC$NCons_2013, col=2)
+```
+We see that we have no normal distribution. There is a simple trick to transform data into normal distribution that often works: The logarithmic function.
+
+
+```{r}
+qqnorm(log(APC$NCons_2013)) # a log-normal distribution fits better
+qqline(log(APC$NCons_2013), col=2)
+```
+
+The data follows now almost a normal distribution.
+
+
+# Identification of outlier
+## Identification of outlier using boxplots
+
+```{r Identify outlier and filter data}
+# Task 10: Identify outliers with boxplot
+boxplot(APC$NCons_2011, APC$NCons_2012, APC$NCons_2013)
+```
+The observations outside the whiskers are drawn as outliers in the boxplot
+
+## Identification of outliers with IQR and sigma function
+```{r}
+# Task 11: Identify outliers with IQR and sigma functions
+source("../R/functions/outlier_identification.R")
+
+
+# apply the functions
+# (many NAs are created, so this outlier filter could be improved)
+APC$Filter_IsConsumptionOutlier <- (is.outlier_IQR(APC$NCons_2011) | 
+                                      is.outlier_IQR(APC$NCons_2012) | 
+                                      is.outlier_IQR(APC$NCons_2013))
+APC$Filter_IsConsumptionOutlier2 <- (is.outlier_sigma(APC$NCons_2011, sigma = 2) | 
+                                      is.outlier_sigma(APC$NCons_2012, sigma = 2) | 
+                                      is.outlier_sigma(APC$NCons_2013, sigma = 2)  )
+```
+When using the IQR-method, `r prop.table(table(APC$Filter_IsConsumptionOutlier))[2]*100` % of the values are identified as outliers.
+
+When using the Sigma-method, `r prop.table(table(APC$Filter_IsConsumptionOutlier2))[2]*100` % of the values are identified as outliers.
+
+After identifiying outliers you need to decide how to deal with them. Typically, you can tim, winsorize, or label outliers. Finally it depends on the business questions what strategy is the best.
+
+
+```{r}
+# Task 12: Data quality report by using filter for missing data
+
+# we create filter columns for different aspects: 
+#  1) address data, 
+#  2) consumption data existent, 
+#  3) portal usage data
+
+APC$Filter_AddressExistent <- !(is.na(APC$PLZ)| is.na(APC$Strasse))
+APC$Filter_ConsumptionExistent <- !is.na(APC$NCons_2011) | !is.na(APC$NCons_2012) | !is.na(APC$NCons_2013)
+APC$Filter_PortalDataExistent <- !is.na(APC$pHouseholdType) | !is.na(APC$pMainHeatingType) | 
+                                  !is.na(APC$pWaterHeatingType) |  (!is.na(APC$pLivingAreaM2) & APC$pLivingAreaM2 > 0) |
+                                  (!is.na(APC$pHouseholdMembers) & APC$pHouseholdMembers > 0)
+
+```
+Regarding missing data:
+
+* `r prop.table(table(APC$Filter_AddressExistent))[2]` % data points have no address.
+
+* `r prop.table(table(APC$Filter_ConsumptionExistent))[2]` % data points have no consumption existent.
+
+* `r prop.table(table(APC$Filter_PortalDataExistent))[2]` % data points have portal data existent.
+
+Again, the right strategy how to deal with missing data (ignore, fill value manually, fill value automatically) depends on the business question what should be answered.

@@ -1,0 +1,137 @@
+---
+title:  'Tutorial 8: Clustering'
+output: html_notebook
+editor_options: 
+  chunk_output_type: inline
+---
+
+This file is part of the lecture Business Intelligence & Analytics (EESYS-BIA-M), Information Systems and Energy Efficient Systems, University of Bamberg.
+
+
+```{r Load libraries}
+library(dplyr)
+library(lubridate)
+library(psych)
+library(cluster)
+library(readr)
+```
+
+```{r Read and prepare data}
+# read data
+consumption <- read_csv(file="../data/clustering/bam_energy_report_consumption.csv", na = "NULL")
+customer <- read_csv(file="../data/clustering/bam_energy_report_customers.csv", na = "NULL")
+logins <- read_csv(file="../data/clustering/bam_energy_report_logins.csv", na = "NULL")
+survey <- read_csv(file="../data/clustering/bam_energy_report_survey.csv", na = "NULL")
+portal_points <- read_csv(file="../data/clustering/bam_energy_report_portal_points.csv", na = "NULL")
+
+# convert data
+consumption$CustomerID <- as.character(consumption$CustomerID)
+customer$CustomerID <- as.character(customer$CustomerID)
+logins$CustomerID <- as.character(logins$CustomerID)
+survey$CustomerID <- as.character(survey$CustomerID)
+portal_points$CustomerID <- as.character(portal_points$CustomerID)
+
+# aggregate and calculate data
+survey$answers <- rowSums(!is.na(survey[,-1]))
+portal_points_agg <- portal_points %>% group_by(CustomerID) %>% summarize(points = sum(Points), different_actions = n_distinct(TaskCode))
+logins_agg <- logins %>% group_by(CustomerID) %>% summarize(n_logins = n())
+consumption$consumption_normalized <- consumption$consumption_2012 / consumption$billing_days_2012
+
+# Join data together
+data <- customer %>% left_join(consumption, by="CustomerID") %>%
+  left_join(logins_agg, by="CustomerID") %>% 
+  left_join(survey, by="CustomerID") %>% 
+  left_join(portal_points_agg, by="CustomerID")
+```
+
+```{r Clustering 1 - A first try with extreme values}
+
+data_clustering <- data %>% select(CustomerID, NumDevices, LivingAreaM2, HouseholdMembers, n_logins, points, different_actions) %>% na.omit()
+
+# simple clustering
+k <- 3
+set.seed(1)
+cluster1 <- kmeans(x = data_clustering[,-1], centers = k)
+
+data_clustering$kmeans_cluster1 <- cluster1$cluster
+
+table(data_clustering$kmeans_cluster1)
+# What we see:  One cluster with only one customer inside. why? Let's look at the values
+
+describeBy((data_clustering %>% select(-one_of(c("CustomerID")))), group="kmeans_cluster1", skew=FALSE)
+
+# extreme value at the number of logins
+
+plot(data_clustering$n_logins, data_clustering$kmeans_cluster1)
+```
+
+```{r Clustering 2 - A second try with untransformed data}
+# remove customer with extreme value 
+
+cluster2 <- kmeans(x = data_clustering[data_clustering$CustomerID != "152373",-1], centers = k)
+
+data_clustering[data_clustering$CustomerID != "152373","kmeans_cluster2"] <- cluster2$cluster
+
+table(data_clustering$kmeans_cluster2)
+
+describeBy((data_clustering %>% select(-one_of(c("CustomerID", "kmeans_cluster1")))), group="kmeans_cluster2", skew=FALSE)
+# What we see:  Clusters depend on a large extent on large scaled variables
+
+```
+
+```{r Clustering 3 - A third try with transformed data}
+t_min_max <- function(x){
+  return( (x-min(x)) / (max(x)-min(x)) )
+}
+
+#data_clustering_transformed <- apply(data_clustering %>% select(NumDevices, LivingAreaM2, HouseholdMembers, n_logins, points, different_actions), 2, transform_min_max)
+
+data_clustering_transformed <- data_clustering %>% mutate(NumDevices_t = t_min_max(NumDevices),
+                                                          LivingAreaM2_t = t_min_max(LivingAreaM2),
+                                                          HouseholdMembers_t = t_min_max(HouseholdMembers),
+                                                          n_logins_t = t_min_max(n_logins),
+                                                          points_t = t_min_max(points),
+                                                          different_actions_t = t_min_max(different_actions)) 
+
+
+set.seed(1)
+cluster3 <- kmeans(x = data_clustering_transformed %>% filter(data_clustering_transformed$CustomerID != "152373") %>% select(NumDevices_t, LivingAreaM2_t, HouseholdMembers_t, n_logins_t, points_t, different_actions_t), centers = k)
+
+data_clustering_transformed[data_clustering_transformed$CustomerID != "152373","kmeans_cluster3"] <- cluster3$cluster
+table(data_clustering_transformed$kmeans_cluster3)
+
+describeBy((data_clustering_transformed %>% select(-one_of(c("CustomerID", "kmeans_cluster1", "kmeans_cluster2" )))), group="kmeans_cluster3", skew=FALSE)
+```
+
+```{r Determine the right number of clusters}
+# Determining the right number of clusters using the elbow method
+
+set.seed(1)
+# Compute and plot wss for k = 2 to k = 15.
+k.max <- 15
+wss <- sapply(1:k.max, 
+              function(k){kmeans(data_clustering_transformed %>% filter(data_clustering_transformed$CustomerID != "152373") %>% select(NumDevices_t, LivingAreaM2_t, HouseholdMembers_t, n_logins_t, points_t, different_actions_t), k, nstart=50,iter.max = 15 )$tot.withinss})
+wss
+plot(1:k.max, wss,
+     type="b", pch = 19, frame = FALSE, 
+     xlab="Number of clusters K",
+     ylab="Total within-clusters sum of squares")
+```
+
+```{r Clustering 4 - Using an hierarchical clustering approach}
+
+data_clustering_transformed_filtered <- data_clustering_transformed %>% filter(data_clustering_transformed$CustomerID != "152373") %>% select(NumDevices_t, LivingAreaM2_t, HouseholdMembers_t, n_logins_t, points_t, different_actions_t)
+
+Dendrogram <- agnes(data_clustering_transformed_filtered)
+plot(Dendrogram, which.plot=2) #plot the dendrogram
+
+cluster4 <- cutree(Dendrogram, k=3)
+
+data_clustering_transformed[data_clustering_transformed$CustomerID != "152373","agnes_cluster4"] <- cluster4
+
+table(data_clustering_transformed$kmeans_cluster3, data_clustering_transformed$agnes_cluster4)
+
+# Members of the clusters of two methods k-means and agnes do not really overlap
+```
+
+
